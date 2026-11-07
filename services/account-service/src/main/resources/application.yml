@@ -1,0 +1,23 @@
+server:
+  port: ${PORT:8083}
+
+spring:
+  application:
+    name: account-service
+  main:
+    banner-mode: off
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://postgres:5432/account}
+    username: ${DATABASE_USER:account_svc}
+    password: ${DATABASE_PASSWORD:account_pw}
+  sql:
+    init:
+      mode: always
+
+logging:
+  structured:
+    format:
+      console: logstash
+
+vijaybank:
+  ledger-url: ${LEDGER_URL:http://ledger-service:8084}

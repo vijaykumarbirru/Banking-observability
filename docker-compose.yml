@@ -1,0 +1,161 @@
+# VijayBank — local stack (Phase 1).
+#
+#   docker compose up -d --build
+#
+# Net banking UI: http://localhost:8080      API: http://localhost:8000
+# RabbitMQ UI:    http://localhost:15672 (vijaybank / vijaybank_pw)
+name: vijaybank
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-wget-health: &wget-health
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 40s
+
+services:
+  # ------------------------------------------------------------------
+  # Infrastructure
+  # ------------------------------------------------------------------
+  postgres:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    <<: *restart
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    <<: *restart
+    image: rabbitmq:3.13-management-alpine
+    volumes:
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    ports:
+      - "15672:15672" # management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  mongodb:
+    <<: *restart
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ------------------------------------------------------------------
+  # Services
+  # ------------------------------------------------------------------
+  ledger-service:
+    <<: *restart
+    build: ./services/ledger-service
+    environment:
+      DATABASE_URL: postgres://ledger_svc:ledger_pw@postgres:5432/ledger
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/health/ready"]
+
+  auth-service:
+    <<: *restart
+    build: ./services/auth-service
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health/ready"]
+
+  customer-service:
+    <<: *restart
+    build: ./services/customer-service
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health/ready')"]
+
+  account-service:
+    <<: *restart
+    build: ./services/account-service
+    depends_on:
+      postgres: { condition: service_healthy }
+      ledger-service: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/health/ready"]
+
+  notification-service:
+    <<: *restart
+    build: ./services/notification-service
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      mongodb: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/health/ready"]
+
+  api-gateway:
+    <<: *restart
+    build: ./services/api-gateway
+    environment:
+      DEV_INBOX_ENABLED: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health/ready"]
+
+  web-frontend:
+    <<: *restart
+    build: ./services/web-frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      api-gateway: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+
+  # One-shot: creates demo customers and history, then exits.
+  seed:
+    build: ./seed
+    restart: "no"
+    depends_on:
+      auth-service: { condition: service_healthy }
+      customer-service: { condition: service_healthy }
+      account-service: { condition: service_healthy }
+      ledger-service: { condition: service_healthy }
+
+volumes:
+  postgres-data:
+  mongo-data:

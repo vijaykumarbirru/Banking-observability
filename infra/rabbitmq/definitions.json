@@ -1,0 +1,26 @@
+{
+  "users": [
+    { "name": "vijaybank", "password": "vijaybank_pw", "tags": ["administrator"] }
+  ],
+  "vhosts": [{ "name": "/" }],
+  "permissions": [
+    { "user": "vijaybank", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" }
+  ],
+  "exchanges": [
+    { "name": "vijaybank.events", "vhost": "/", "type": "topic", "durable": true, "auto_delete": false, "internal": false, "arguments": {} },
+    { "name": "vijaybank.dlx", "vhost": "/", "type": "direct", "durable": true, "auto_delete": false, "internal": false, "arguments": {} }
+  ],
+  "queues": [
+    { "name": "notification.events", "vhost": "/", "durable": true, "auto_delete": false,
+      "arguments": { "x-queue-type": "classic", "x-dead-letter-exchange": "vijaybank.dlx", "x-dead-letter-routing-key": "notification.events.dlq" } },
+    { "name": "notification.events.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "classic" } }
+  ],
+  "bindings": [
+    { "source": "vijaybank.events", "vhost": "/", "destination": "notification.events", "destination_type": "queue", "routing_key": "auth.otp.requested", "arguments": {} },
+    { "source": "vijaybank.events", "vhost": "/", "destination": "notification.events", "destination_type": "queue", "routing_key": "auth.account.locked", "arguments": {} },
+    { "source": "vijaybank.events", "vhost": "/", "destination": "notification.events", "destination_type": "queue", "routing_key": "transfer.*", "arguments": {} },
+    { "source": "vijaybank.events", "vhost": "/", "destination": "notification.events", "destination_type": "queue", "routing_key": "billpay.*", "arguments": {} },
+    { "source": "vijaybank.events", "vhost": "/", "destination": "notification.events", "destination_type": "queue", "routing_key": "card.*", "arguments": {} },
+    { "source": "vijaybank.dlx", "vhost": "/", "destination": "notification.events.dlq", "destination_type": "queue", "routing_key": "notification.events.dlq", "arguments": {} }
+  ]
+}
