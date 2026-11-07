@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, api, istDateTime, post, session } from '../api';
-import Brand from '../components/Brand';
+import AuthShell from '../components/AuthShell';
 
 type State = { customerId: string; loginToken: string; expiresIn: number };
 type Sms = { message: string; createdAt: string };
@@ -62,53 +62,54 @@ export default function Otp() {
   const ss = String(secondsLeft % 60).padStart(2, '0');
 
   return (
-    <div className="auth-page">
-      <aside className="auth-hero">
-        <Brand light />
-        <h1>One more step.</h1>
-        <p>We sent a one-time password to your registered mobile number.</p>
-      </aside>
-      <main className="auth-card-wrap">
-        <form className="card auth-card" onSubmit={submit}>
-          <h2>Enter OTP</h2>
-          <p className="muted">Customer ID {state.customerId} · expires in {mm}:{ss}</p>
-          <label>
-            6-digit OTP
-            <input
-              className="otp-input"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              inputMode="numeric"
-              autoFocus
-              required
-            />
-          </label>
-          {error && <div className="error">{error}</div>}
-          <button className="btn-primary" disabled={busy || otp.length !== 6 || secondsLeft === 0}>
-            {busy ? 'Verifying…' : 'Verify and log in'}
-          </button>
-          <button type="button" className="btn-link" onClick={() => navigate('/login')}>
-            Start again
-          </button>
-        </form>
+    <AuthShell>
+      <form className="card login-card" onSubmit={submit}>
+        <h2>Verify it's you</h2>
+        <p className="muted small">
+          We sent a 6-digit OTP to your registered mobile number · Customer ID {state.customerId}
+        </p>
+        <label>
+          <span className="label-row">
+            One-time password
+            <span className={secondsLeft < 60 ? 'timer warn' : 'timer'}>
+              {mm}:{ss}
+            </span>
+          </span>
+          <input
+            className="otp-input"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            required
+          />
+        </label>
+        {error && <div className="error">{error}</div>}
+        <button className="btn-primary" disabled={busy || otp.length !== 6 || secondsLeft === 0}>
+          {busy ? 'Verifying…' : 'Verify and log in'}
+        </button>
+        <button type="button" className="btn-link" onClick={() => navigate('/login')}>
+          Back to login
+        </button>
+      </form>
 
-        <section className="dev-inbox">
-          <header>
-            <span>📱 Developer inbox</span>
-            <small>Simulated SMS · lab only</small>
-          </header>
-          {inbox.length === 0 ? (
-            <p className="muted">Waiting for the SMS…</p>
-          ) : (
-            inbox.map((m) => (
-              <div className="sms" key={m.createdAt}>
-                <p>{m.message}</p>
-                <time>{istDateTime(m.createdAt)}</time>
-              </div>
-            ))
-          )}
-        </section>
-      </main>
-    </div>
+      <section className="dev-inbox">
+        <header>
+          <span>📱 Developer inbox</span>
+          <small>Simulated SMS · lab only</small>
+        </header>
+        {inbox.length === 0 ? (
+          <p className="muted">Waiting for the SMS…</p>
+        ) : (
+          inbox.slice(0, 2).map((m) => (
+            <div className="sms" key={m.createdAt}>
+              <p>{m.message}</p>
+              <time>{istDateTime(m.createdAt)}</time>
+            </div>
+          ))
+        )}
+      </section>
+    </AuthShell>
   );
 }

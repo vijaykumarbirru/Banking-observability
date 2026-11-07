@@ -1,13 +1,14 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError, post } from '../api';
-import Brand from '../components/Brand';
+import AuthShell, { Icon } from '../components/AuthShell';
 
 export default function Login() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [customerId, setCustomerId] = useState('');
   const [password, setPassword] = useState('');
+  const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -31,38 +32,45 @@ export default function Login() {
   }
 
   return (
-    <div className="auth-page">
-      <aside className="auth-hero">
-        <Brand light />
-        <h1>Banking that keeps up with you.</h1>
-        <p>Check balances, move money and pay bills — securely, any time.</p>
-        <ul className="hero-points">
-          <li>Two-step login with OTP</li>
-          <li>Instant IMPS, NEFT and RTGS transfers</li>
-          <li>Statements you can download</li>
-        </ul>
-      </aside>
-      <main className="auth-card-wrap">
-        <form className="card auth-card" onSubmit={submit}>
-          <h2>Log in to Net Banking</h2>
-          {params.get('reason') === 'idle' && <div className="notice">You were logged out after 5 minutes of inactivity.</div>}
-          {params.get('reason') === 'logout' && <div className="notice">You have logged out securely.</div>}
-          <label>
-            Customer ID
-            <input value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="e.g. VB100001" autoFocus required />
-          </label>
-          <label>
+    <AuthShell>
+      <form className="card login-card" onSubmit={submit}>
+        <div className="login-tabs">
+          <span className="active">Net Banking</span>
+          <span className="disabled" title="Coming soon">
+            Corporate
+          </span>
+        </div>
+        <h2>Welcome back</h2>
+        <p className="muted small">Log in securely to your VijayBank account</p>
+        {params.get('reason') === 'idle' && <div className="notice">You were logged out after 5 minutes of inactivity.</div>}
+        {params.get('reason') === 'logout' && <div className="notice">You have logged out securely. Thank you for banking with us.</div>}
+        <label>
+          Customer ID
+          <input value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="e.g. VB100001" autoFocus required autoComplete="username" />
+        </label>
+        <label>
+          <span className="label-row">
             Password
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          </label>
-          {error && <div className="error">{error}</div>}
-          <button className="btn-primary" disabled={busy}>
-            {busy ? 'Checking…' : 'Continue'}
-          </button>
-          <p className="hint">Demo customers: VB100001 – VB100020 · password Welcome@123</p>
-          <p className="fineprint">VijayBank is a fictional bank built for learning. Never enter real banking credentials here.</p>
-        </form>
-      </main>
-    </div>
+            <button type="button" className="link-btn" onClick={() => setShow(!show)}>
+              {show ? 'Hide' : 'Show'}
+            </button>
+          </span>
+          <input type={show ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
+        </label>
+        {error && <div className="error">{error}</div>}
+        <button className="btn-primary" disabled={busy}>
+          {busy ? 'Checking…' : 'Log in'}
+        </button>
+        <div className="login-links">
+          <a title="Demo only">Forgot password?</a>
+          <a title="Demo only">Register for net banking</a>
+        </div>
+        <div className="secure-note">
+          <Icon name="lock" size={16} />
+          <span>Two-step login with OTP · auto logout after 5 minutes idle</span>
+        </div>
+        <p className="hint">Demo customers: VB100001 – VB100020 · password Welcome@123</p>
+      </form>
+    </AuthShell>
   );
 }
