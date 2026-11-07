@@ -70,7 +70,29 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}, ret
   return parse(res) as Promise<T>;
 }
 
-export const post = <T = unknown>(path: string, body: unknown) => api<T>(path, { method: 'POST', body: JSON.stringify(body) });
+export const post = <T = unknown>(path: string, body: unknown, headers: Record<string, string> = {}) =>
+  api<T>(path, { method: 'POST', body: JSON.stringify(body), headers });
+
+/** Downloads an authenticated file (e.g. a PDF statement) and saves it with the server's filename. */
+export async function download(path: string, fallbackName: string) {
+  const token = session.get()?.accessToken;
+  const res = await fetch('/api' + path, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) await parse(res);
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export const toPaise = (rupeesText: string) => Math.round(parseFloat(rupeesText.replace(/,/g, '')) * 100);
+
+export const istDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
+
+export const isoDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 export const rupees = (paise: number | null | undefined) =>
   paise == null

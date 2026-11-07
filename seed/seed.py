@@ -9,7 +9,7 @@ import os
 import random
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
 
 import httpx
 
@@ -17,6 +17,8 @@ AUTH = os.getenv("AUTH_URL", "http://auth-service:8081")
 CUSTOMER = os.getenv("CUSTOMER_URL", "http://customer-service:8082")
 ACCOUNT = os.getenv("ACCOUNT_URL", "http://account-service:8083")
 LEDGER = os.getenv("LEDGER_URL", "http://ledger-service:8084")
+TRANSFER = os.getenv("TRANSFER_URL", "http://transfer-service:8085")
+IST = timezone(timedelta(hours=5, minutes=30))
 PASSWORD = os.getenv("SEED_PASSWORD", "Welcome@123")
 
 FIRST = ["Aarav", "Ananya", "Rohan", "Diya", "Kabir", "Meera", "Arjun", "Isha", "Vihaan", "Saanvi",
@@ -69,20 +71,24 @@ def seed_history(client, rng, account_no, opening_paise, start, savings, city):
     balance = opening_paise
     now = datetime.now(timezone.utc)
     events = []
-    day = start + timedelta(days=1)
+    day = start.astimezone(IST).date() + timedelta(days=1)
     employer = rng.choice(EMPLOYERS)
-    while day < now - timedelta(hours=2):
+
+    def at(h, m):  # a local (IST) time on `day`, stored in UTC
+        return datetime.combine(day, dtime(h, m), IST).astimezone(timezone.utc)
+
+    while at(23, 59) < now - timedelta(hours=1):
         if savings and day.day == 1:
-            events.append(("SALARY", day.replace(hour=9, minute=30)))
+            events.append(("SALARY", at(9, 30)))
         for _ in range(rng.choice([0, 0, 1, 1, 2])):
-            events.append(("SPEND", day.replace(hour=rng.randint(8, 22), minute=rng.randint(0, 59))))
+            events.append(("SPEND", at(rng.randint(8, 21), rng.randint(0, 59))))
         day += timedelta(days=1)
 
-    for i, (kind, at) in enumerate(sorted(events, key=lambda e: e[1])):
+    for i, (kind, posted) in enumerate(sorted(events, key=lambda e: e[1])):
         key = f"seed:{account_no}:h{i:04d}"
         if kind == "SALARY":
             amount = rng.randint(45_000, 180_000) * 100
-            journal(client, key, "SALARY_CREDIT", at, "EXTERNAL_SETTLEMENT", account_no, amount,
+            journal(client, key, "SALARY_CREDIT", posted, "EXTERNAL_SETTLEMENT", account_no, amount,
                     f"SALARY CREDIT - {employer}")
             balance += amount
             continue
@@ -91,14 +97,32 @@ def seed_history(client, rng, account_no, opening_paise, start, savings, city):
         if amount > balance:
             continue
         narration = f"{channel}/{rng.choice(merchants)}" if merchants else f"{channel}/{city.upper()}"
-        journal(client, key, "CARD_UPI_DEBIT", at, account_no, "EXTERNAL_SETTLEMENT", amount, narration)
+        journal(client, key, "CARD_UPI_DEBIT", posted, account_no, "EXTERNAL_SETTLEMENT", amount, narration)
         balance -= amount
+
+
+def seed_beneficiaries(client, n, customer_id):
+    """Ready-to-use beneficiaries (past the cooling period) for every customer."""
+    peer = n % 20 + 1
+    payees = [
+        (f"{FIRST[peer - 1]} {LAST[peer - 1]}", f"1001{100000 + peer:08d}", f"VIJB0000{100 + peer % len(CITIES)}", "Friend"),
+        ("Sneha Kulkarni", f"50200{n:07d}", "BCBK0000123", "Sister"),
+        ("Prakash Rao", f"3100{n:06d}88", "SNBK0000456", "Landlord"),
+        # The simulated destination bank always rejects accounts ending in 0000: use it to see a reversal.
+        ("Rejected Payee (test)", f"77770{n:03d}0000", "DCOB0000789", "Test reversal"),
+    ]
+    for name, account_no, ifsc, nickname in payees:
+        call(client, "POST", f"{TRANSFER}/internal/beneficiaries", {
+            "customerId": customer_id, "name": name, "accountNo": account_no, "ifsc": ifsc, "nickname": nickname,
+            "activeSince": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
+        })
 
 
 def main() -> None:
     with httpx.Client(timeout=15) as client:
         for name, url in [("ledger-service", LEDGER), ("auth-service", AUTH),
-                          ("customer-service", CUSTOMER), ("account-service", ACCOUNT)]:
+                          ("customer-service", CUSTOMER), ("account-service", ACCOUNT),
+                          ("transfer-service", TRANSFER)]:
             wait_for(client, name, url)
 
         rng = random.Random(42)  # deterministic: same data on every machine
@@ -135,6 +159,7 @@ def main() -> None:
                 journal(client, f"seed:{account_no}:opening", "OPENING_BALANCE", start,
                         "OPENING_BALANCE_EQUITY", account_no, opening, "OPENING BALANCE")
                 seed_history(client, rng, account_no, opening, start, acct_type == "SAVINGS", city)
+            seed_beneficiaries(client, n, customer_id)
             print(f"seeded {customer_id} ({first} {last}) with {len(accounts)} account(s)", flush=True)
 
     print("seed complete: log in with VB100001..VB100020 / " + PASSWORD, flush=True)

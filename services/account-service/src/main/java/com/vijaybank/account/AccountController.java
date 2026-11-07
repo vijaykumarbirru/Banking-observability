@@ -74,6 +74,17 @@ public class AccountController {
                 .body(Map.of("accountNo", req.accountNo(), "created", created));
     }
 
+    /** Internal: owner and status of an account, for transfer validation and statements. */
+    @GetMapping("/internal/accounts/{accountNo}")
+    public Map<String, Object> internalGet(@PathVariable String accountNo) {
+        Account a = accounts.find(accountNo)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "Account not found."));
+        Map<String, Object> m = view(a, null);
+        m.remove("balancePaise");
+        m.put("customerId", a.customerId());
+        return m;
+    }
+
     @GetMapping("/health/live")
     public Map<String, String> live() {
         return Map.of("status", "UP");

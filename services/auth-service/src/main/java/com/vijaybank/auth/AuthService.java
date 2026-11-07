@@ -158,6 +158,57 @@ public class AuthService {
         }
     }
 
+    /**
+     * Step-up OTP for a sensitive action (transfer, new beneficiary) by an
+     * already logged-in customer. Returns a reference the caller verifies later.
+     */
+    public LoginResult sendStepUpOtp(String customerId, String purpose, Map<String, Object> details) {
+        if (customerId == null || purpose == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "customerId and purpose are required.");
+        }
+        String otp = "%06d".formatted(RANDOM.nextInt(1_000_000));
+        String ref = randomToken();
+        String key = "stepup:" + ref;
+        redis.opsForHash().putAll(key, Map.of("customerId", customerId, "purpose", purpose,
+                "otpHash", sha256(otp), "attempts", "0"));
+        redis.expire(key, props.otpTtl());
+
+        Map<String, Object> data = new java.util.LinkedHashMap<>(details == null ? Map.of() : details);
+        data.put("purpose", purpose);
+        data.put("channel", "SMS");
+        data.put("otp", otp);
+        data.put("expiresInSeconds", props.otpTtl().toSeconds());
+        events.publish("auth.otp.requested", customerId, data);
+        log.info("step-up otp sent customerId={} purpose={}", customerId, purpose);
+        return new LoginResult(ref, props.otpTtl().toSeconds());
+    }
+
+    /** Verifies a step-up OTP. The OTP is single-use and bound to the customer and purpose. */
+    public void verifyStepUpOtp(String otpRef, String customerId, String purpose, String otp) {
+        if (otpRef == null || otp == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "otpRef and otp are required.");
+        }
+        String key = "stepup:" + otpRef;
+        Map<Object, Object> pending = redis.opsForHash().entries(key);
+        if (pending.isEmpty() || !pending.get("customerId").equals(customerId)
+                || (purpose != null && !pending.get("purpose").equals(purpose))) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "OTP_EXPIRED", "The OTP has expired. Please start again.");
+        }
+        long attempts = redis.opsForHash().increment(key, "attempts", 1);
+        boolean matches = MessageDigest.isEqual(
+                sha256(otp).getBytes(StandardCharsets.UTF_8),
+                ((String) pending.get("otpHash")).getBytes(StandardCharsets.UTF_8));
+        if (!matches) {
+            if (attempts >= props.otpMaxAttempts()) {
+                redis.delete(key);
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "OTP_ATTEMPTS_EXCEEDED", "Too many wrong OTPs. Please start again.");
+            }
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_OTP", "The OTP is incorrect.",
+                    Map.of("attemptsRemaining", props.otpMaxAttempts() - attempts));
+        }
+        redis.delete(key);
+    }
+
     public boolean createCredential(String customerId, String password) {
         if (customerId == null || !CUSTOMER_ID.matcher(customerId).matches() || password == null || password.length() < 8) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",

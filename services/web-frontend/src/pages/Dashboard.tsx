@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError, api, istDateTime, post, rupees, session } from '../api';
-import Brand from '../components/Brand';
+import { ApiError, api, istDateTime, rupees, session } from '../api';
+import Layout from '../components/Layout';
 
 type Customer = { customerId: string; fullName: string; email: string; mobile: string; city: string; kycStatus: string };
 type Account = {
@@ -51,39 +51,12 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
-  async function logout() {
-    try {
-      await post('/auth/logout', { refreshToken: session.get()?.refreshToken });
-    } catch {
-      /* logging out locally is what matters */
-    }
-    session.clear();
-    navigate('/login?reason=logout', { replace: true });
-  }
-
   const total = accounts.reduce((sum, a) => sum + (a.balancePaise ?? 0), 0);
   const hour = Number(new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false }));
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <Brand light />
-        <nav>
-          <a className="active">Dashboard</a>
-          <a className="disabled" title="Coming in Phase 2">Transfers</a>
-          <a className="disabled" title="Coming in Phase 2">Statements</a>
-          <a className="disabled" title="Coming in Phase 3">Cards</a>
-        </nav>
-        <div className="user">
-          <span>{customer?.fullName}</span>
-          <button className="btn-ghost" onClick={logout}>
-            Log out
-          </button>
-        </div>
-      </header>
-
-      <main className="content">
+    <Layout>
         {error && <div className="error">{error}</div>}
         <section className="welcome">
           <div>
@@ -134,7 +107,7 @@ export default function Dashboard() {
                 <tbody>
                   {entries.map((e) => (
                     <tr key={e.id}>
-                      <td className="muted">{istDateTime(e.postedAt)}</td>
+                      <td className="muted nowrap">{istDateTime(e.postedAt)}</td>
                       <td>{e.narration}</td>
                       <td className={`num ${e.direction === 'CREDIT' ? 'credit' : 'debit'}`}>
                         {e.direction === 'CREDIT' ? '+' : '−'}
@@ -161,8 +134,6 @@ export default function Dashboard() {
             </dl>
           </div>
         </section>
-      </main>
-      <footer className="footer">VijayBank is a fictional bank built for learning · All data is simulated</footer>
-    </div>
+    </Layout>
   );
 }

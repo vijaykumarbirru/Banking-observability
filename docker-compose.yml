@@ -1,4 +1,4 @@
-# VijayBank — local stack (Phase 1).
+# VijayBank — local stack (Phases 1-2).
 #
 #   docker compose up -d --build
 #
@@ -121,6 +121,65 @@ services:
       <<: *wget-health
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/health/ready"]
 
+  transfer-service:
+    <<: *restart
+    build: ./services/transfer-service
+    environment:
+      DATABASE_URL: Host=postgres;Database=transfer;Username=transfer_svc;Password=transfer_pw
+      BENEFICIARY_COOLING_MINUTES: "30"
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      account-service: { condition: service_healthy }
+      ledger-service: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8085/health/ready"]
+
+  fraud-service:
+    <<: *restart
+    build: ./services/fraud-service
+    environment:
+      FRAUD_BLOCK_SCORE: ${FRAUD_BLOCK_SCORE:-80}
+      FRAUD_FLAG_SCORE: ${FRAUD_FLAG_SCORE:-50}
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8086/health/ready')"]
+
+  settlement-worker:
+    <<: *restart
+    build: ./services/settlement-worker
+    environment:
+      SETTLEMENT_FAILURE_RATE: "0"   # 0..1; accounts ending 0000 always fail regardless
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      ledger-service: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8092/health/ready"]
+
+  audit-service:
+    <<: *restart
+    build: ./services/audit-service
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      mongodb: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8088/health/ready')"]
+
+  statement-service:
+    <<: *restart
+    build: ./services/statement-service
+    depends_on:
+      ledger-service: { condition: service_healthy }
+      account-service: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8089/health/ready"]
+
   api-gateway:
     <<: *restart
     build: ./services/api-gateway
@@ -155,6 +214,7 @@ services:
       customer-service: { condition: service_healthy }
       account-service: { condition: service_healthy }
       ledger-service: { condition: service_healthy }
+      transfer-service: { condition: service_healthy }
 
 volumes:
   postgres-data:

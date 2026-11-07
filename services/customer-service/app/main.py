@@ -133,6 +133,17 @@ def me(x_customer_id: str | None = Header(default=None)):
     }
 
 
+@app.get("/internal/customers/{customer_id}")
+def internal_get(customer_id: str):
+    """Internal: name and address for statements and notifications."""
+    with pool.connection() as conn:
+        row = conn.execute("SELECT * FROM customers WHERE customer_id = %s", (customer_id,)).fetchone()
+    if row is None:
+        return error(404, "CUSTOMER_NOT_FOUND", "Customer not found.")
+    return {"customerId": row["customer_id"], "fullName": row["full_name"], "address": row["address"],
+            "city": row["city"], "mobile": mask_mobile(row["mobile"]), "email": mask_email(row["email"])}
+
+
 class NewCustomer(BaseModel):
     customerId: str = Field(pattern=r"^VB\d{6}$")
     fullName: str

@@ -316,17 +316,69 @@ func (h *handlers) balances(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
+// entryFilter reads the optional ?from=&to= (RFC 3339, to is exclusive) and
+// ?direction= query parameters shared by entries and summary.
+type entryFilter struct {
+	from, to  *time.Time
+	direction string
+}
+
+func parseFilter(r *http.Request) (entryFilter, string) {
+	var f entryFilter
+	q := r.URL.Query()
+	for _, p := range []struct {
+		name string
+		dst  **time.Time
+	}{{"from", &f.from}, {"to", &f.to}} {
+		if v := q.Get(p.name); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				return f, p.name + " must be an RFC 3339 timestamp"
+			}
+			*p.dst = &t
+		}
+	}
+	if d := q.Get("direction"); d != "" {
+		if d != "DEBIT" && d != "CREDIT" {
+			return f, "direction must be DEBIT or CREDIT"
+		}
+		f.direction = d
+	}
+	return f, ""
+}
+
+// entries lists an account's entries newest first. The total number of
+// matching entries is returned in the X-Total-Count header for paging.
 func (h *handlers) entries(w http.ResponseWriter, r *http.Request) {
+	f, msg := parseFilter(r)
+	if msg != "" {
+		writeError(w, r, 400, "INVALID_REQUEST", msg)
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 || limit > 5000 {
 		limit = 20
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	where := `e.account_no = $1 AND ($2::timestamptz IS NULL OR e.posted_at >= $2)
+	          AND ($3::timestamptz IS NULL OR e.posted_at < $3) AND ($4 = '' OR e.direction = $4)`
+	args := []any{chi.URLParam(r, "accountNo"), f.from, f.to, f.direction}
+
+	var total int
+	if err := h.db.QueryRow(r.Context(), `SELECT count(*) FROM entries e WHERE `+where, args...).Scan(&total); err != nil {
+		logErr(r, "entries count failed", err)
+		writeError(w, r, 500, "INTERNAL_ERROR", "could not read entries")
+		return
 	}
 	rows, err := h.db.Query(r.Context(),
 		`SELECT e.id, j.id, j.type, COALESCE(j.reference, ''), e.account_no, e.direction, e.amount_paise,
 		        e.balance_after_paise, COALESCE(e.narration, ''), e.posted_at
 		 FROM entries e JOIN journals j ON j.id = e.journal_id
-		 WHERE e.account_no = $1 ORDER BY e.posted_at DESC, e.id DESC LIMIT $2`,
-		chi.URLParam(r, "accountNo"), limit)
+		 WHERE `+where+` ORDER BY e.posted_at DESC, e.id DESC LIMIT $5 OFFSET $6`,
+		append(args, limit, offset)...)
 	if err != nil {
 		logErr(r, "entries failed", err)
 		writeError(w, r, 500, "INTERNAL_ERROR", "could not read entries")
@@ -337,5 +389,42 @@ func (h *handlers) entries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, 500, "INTERNAL_ERROR", "could not read entries")
 		return
 	}
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
+	writeJSON(w, 200, out)
+}
+
+// summary returns opening/closing balances and totals for a period, as needed
+// for a statement header.
+func (h *handlers) summary(w http.ResponseWriter, r *http.Request) {
+	f, msg := parseFilter(r)
+	if msg != "" || f.from == nil || f.to == nil {
+		writeError(w, r, 400, "INVALID_REQUEST", "from and to (RFC 3339) are required")
+		return
+	}
+	no := chi.URLParam(r, "accountNo")
+	var out struct {
+		AccountNo           string `json:"accountNo"`
+		OpeningBalancePaise int64  `json:"openingBalancePaise"`
+		ClosingBalancePaise int64  `json:"closingBalancePaise"`
+		TotalCreditsPaise   int64  `json:"totalCreditsPaise"`
+		TotalDebitsPaise    int64  `json:"totalDebitsPaise"`
+		Count               int    `json:"count"`
+	}
+	out.AccountNo = no
+	err := h.db.QueryRow(r.Context(), `
+		SELECT
+		  COALESCE((SELECT balance_after_paise FROM entries WHERE account_no = $1 AND posted_at < $2
+		            ORDER BY posted_at DESC, id DESC LIMIT 1), 0),
+		  COALESCE(SUM(amount_paise) FILTER (WHERE direction = 'CREDIT'), 0),
+		  COALESCE(SUM(amount_paise) FILTER (WHERE direction = 'DEBIT'), 0),
+		  count(*)
+		FROM entries WHERE account_no = $1 AND posted_at >= $2 AND posted_at < $3`,
+		no, f.from, f.to).Scan(&out.OpeningBalancePaise, &out.TotalCreditsPaise, &out.TotalDebitsPaise, &out.Count)
+	if err != nil {
+		logErr(r, "summary failed", err)
+		writeError(w, r, 500, "INTERNAL_ERROR", "could not compute summary")
+		return
+	}
+	out.ClosingBalancePaise = out.OpeningBalancePaise + out.TotalCreditsPaise - out.TotalDebitsPaise
 	writeJSON(w, 200, out)
 }

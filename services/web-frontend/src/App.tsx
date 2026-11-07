@@ -4,6 +4,9 @@ import { session } from './api';
 import Login from './pages/Login';
 import Otp from './pages/Otp';
 import Dashboard from './pages/Dashboard';
+import Transfers from './pages/Transfers';
+import Beneficiaries from './pages/Beneficiaries';
+import Statements from './pages/Statements';
 
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
 
@@ -46,6 +49,13 @@ export default function App() {
           </RequireSession>
         }
       />
+      {[
+        ['/transfers', <Transfers />],
+        ['/beneficiaries', <Beneficiaries />],
+        ['/statements', <Statements />],
+      ].map(([path, el]) => (
+        <Route key={path as string} path={path as string} element={<RequireSession>{el as JSX.Element}</RequireSession>} />
+      ))}
       <Route path="*" element={<Navigate to={session.get() ? '/dashboard' : '/login'} replace />} />
     </Routes>
   );

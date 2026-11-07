@@ -51,6 +51,7 @@ func main() {
 		r.Post("/journals", h.postJournal)
 		r.Get("/balances", h.balances)
 		r.Get("/accounts/{accountNo}/entries", h.entries)
+		r.Get("/accounts/{accountNo}/summary", h.summary)
 	})
 
 	srv := &http.Server{Addr: ":" + env("PORT", "8084"), Handler: r, ReadHeaderTimeout: 5 * time.Second}

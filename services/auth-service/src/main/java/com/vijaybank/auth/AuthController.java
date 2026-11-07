@@ -64,6 +64,25 @@ public class AuthController {
         return jwt.jwks();
     }
 
+    record StepUpRequest(String customerId, String purpose, Map<String, Object> details) {
+    }
+
+    record StepUpVerifyRequest(String otpRef, String customerId, String purpose, String otp) {
+    }
+
+    /** Internal: step-up OTP for transfers and beneficiaries (called by transfer-service). */
+    @PostMapping("/internal/otp/send")
+    public Map<String, Object> sendOtp(@RequestBody StepUpRequest req) {
+        var result = auth.sendStepUpOtp(req.customerId(), req.purpose(), req.details());
+        return Map.of("otpRef", result.loginToken(), "expiresInSeconds", result.otpExpiresInSeconds());
+    }
+
+    @PostMapping("/internal/otp/verify")
+    public Map<String, Object> verifyOtp(@RequestBody StepUpVerifyRequest req) {
+        auth.verifyStepUpOtp(req.otpRef(), req.customerId(), req.purpose(), req.otp());
+        return Map.of("verified", true);
+    }
+
     /** Internal (not routed by the gateway): used by the seed job. */
     @PostMapping("/internal/credentials")
     public ResponseEntity<Map<String, Object>> createCredential(@RequestBody CredentialRequest req) {
