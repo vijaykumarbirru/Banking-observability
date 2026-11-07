@@ -97,9 +97,9 @@ export default function Dashboard() {
     { label: 'Transfer money', icon: 'send', to: '/transfers' },
     { label: 'Add beneficiary', icon: 'users', to: '/beneficiaries' },
     { label: 'Statements', icon: 'download', to: '/statements' },
-    { label: 'Pay bills', icon: 'bill', soon: true },
-    { label: 'Cards', icon: 'card', soon: true },
-    { label: 'Open FD', icon: 'fd', soon: true },
+    { label: 'Pay bills', icon: 'bill', to: '/bills' },
+    { label: 'Cards', icon: 'card', to: '/cards' },
+    { label: 'Open FD', icon: 'fd', to: '/deposits' },
   ];
 
   return (
@@ -130,7 +130,7 @@ export default function Dashboard() {
 
       <section className="quick-actions">
         {actions.map((a) =>
-          a.soon ? (
+          'soon' in a ? (
             <div className="quick soon" key={a.label} title="Coming in Phase 3">
               <span className="quick-icon">
                 <Icon name={a.icon} />

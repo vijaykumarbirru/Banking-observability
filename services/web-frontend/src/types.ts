@@ -63,3 +63,60 @@ export const REASON_LABEL: Record<string, string> = {
   NEW_BENEFICIARY_LIMIT: 'New beneficiary limit exceeded',
   FRAUD_CHECK_UNAVAILABLE: 'Security check unavailable',
 };
+
+export type Biller = { id: string; name: string; category: string; label: string; pattern: string; recharge?: boolean };
+
+export type BillPayment = {
+  paymentId: string;
+  reference: string;
+  billerName: string;
+  category: string;
+  consumerNumber: string;
+  amountPaise: number;
+  status: string;
+  failureReason: string | null;
+  createdAt: string;
+};
+
+export type Controls = {
+  atmLimitPaise: number;
+  posLimitPaise: number;
+  onlineLimitPaise: number;
+  internationalEnabled: boolean;
+  contactlessEnabled: boolean;
+};
+
+export type Card = {
+  cardId: string;
+  type: 'DEBIT' | 'CREDIT';
+  variant: string;
+  network: string;
+  maskedNumber: string;
+  holderName: string;
+  expiry: string;
+  accountNo: string | null;
+  status: 'ACTIVE' | 'BLOCKED' | 'HOTLISTED';
+  blockReason: string | null;
+  controls: Controls;
+  caps: Controls;
+  creditLimitPaise: number | null;
+  outstandingPaise: number | null;
+  availableCreditPaise: number | null;
+  minimumDuePaise: number | null;
+  statementDueDate: string | null;
+};
+
+export type Deposit = {
+  depositId: string;
+  fdNo: string;
+  fundingAccountNo: string;
+  principalPaise: number;
+  rateBps: number;
+  tenureMonths: number;
+  startDate: string;
+  maturityDate: string;
+  maturityAmountPaise: number;
+  status: string;
+  closedOn: string | null;
+  payoutPaise: number | null;
+};

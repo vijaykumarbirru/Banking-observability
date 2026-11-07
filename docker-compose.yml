@@ -1,4 +1,4 @@
-# VijayBank — local stack (Phases 1-2).
+# VijayBank — local stack (Phases 1-3).
 #
 #   docker compose up -d --build
 #
@@ -106,6 +106,7 @@ services:
     build: ./services/account-service
     depends_on:
       postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
       ledger-service: { condition: service_healthy }
     healthcheck:
       <<: *wget-health
@@ -180,6 +181,27 @@ services:
       <<: *wget-health
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8089/health/ready"]
 
+  payment-service:
+    <<: *restart
+    build: ./services/payment-service
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      account-service: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/health/ready"]
+
+  card-service:
+    <<: *restart
+    build: ./services/card-service
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      <<: *wget-health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8091/health/ready"]
+
   api-gateway:
     <<: *restart
     build: ./services/api-gateway
@@ -215,6 +237,7 @@ services:
       account-service: { condition: service_healthy }
       ledger-service: { condition: service_healthy }
       transfer-service: { condition: service_healthy }
+      card-service: { condition: service_healthy }
 
 volumes:
   postgres-data:

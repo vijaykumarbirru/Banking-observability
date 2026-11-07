@@ -1,0 +1,12 @@
+<configuration>
+  <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+      <customFields>{"service":"card-service"}</customFields>
+    </encoder>
+  </appender>
+  <logger name="io.netty" level="WARN"/>
+  <logger name="com.zaxxer.hikari" level="WARN"/>
+  <root level="INFO">
+    <appender-ref ref="JSON"/>
+  </root>
+</configuration>

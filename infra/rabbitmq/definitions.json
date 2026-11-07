@@ -236,6 +236,14 @@
       "destination_type": "queue",
       "routing_key": "#",
       "arguments": {}
+    },
+    {
+      "source": "vijaybank.events",
+      "vhost": "/",
+      "destination": "notification.events",
+      "destination_type": "queue",
+      "routing_key": "deposit.*",
+      "arguments": {}
     }
   ]
 }

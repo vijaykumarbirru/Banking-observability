@@ -64,6 +64,35 @@ public class LedgerClient {
         }
     }
 
+    public record Leg(String accountNo, String direction, long amountPaise, String narration) {
+    }
+
+    /**
+     * Posts a balanced journal. Ledger business errors (e.g. INSUFFICIENT_FUNDS) are rethrown with
+     * their code; a timeout means the outcome is unknown, which the caller must not treat as failure.
+     */
+    public void post(String idempotencyKey, String type, String reference, java.time.Instant postedAt, List<Leg> legs) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("idempotencyKey", idempotencyKey);
+        body.put("type", type);
+        body.put("reference", reference);
+        if (postedAt != null) {
+            body.put("postedAt", postedAt.toString());
+        }
+        body.put("entries", legs);
+        try {
+            http.post().uri("/internal/journals").body(body).retrieve()
+                    .onStatus(s -> s.is4xxClientError(), (req, res) -> {
+                        var err = new com.fasterxml.jackson.databind.ObjectMapper().readTree(res.getBody()).path("error");
+                        throw new ApiException(HttpStatus.valueOf(res.getStatusCode().value()),
+                                err.path("code").asText("LEDGER_REJECTED"), err.path("message").asText("Posting rejected."));
+                    })
+                    .toBodilessEntity();
+        } catch (RestClientException e) {
+            throw unavailable(e);
+        }
+    }
+
     private static ApiException unavailable(RestClientException e) {
         log.error("ledger-service call failed", e);
         return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "LEDGER_UNAVAILABLE",

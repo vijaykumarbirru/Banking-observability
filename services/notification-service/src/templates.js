@@ -15,6 +15,12 @@ function otpMessage(d) {
   switch (d.purpose) {
     case 'TRANSFER':
       return `${d.otp} is your OTP to transfer ${rupees(d.amountPaise)} to ${d.beneficiaryName} (${d.accountNoMasked}) via ${d.mode}. ${validity}`;
+    case 'BILLPAY':
+      return `${d.otp} is your OTP to pay ${rupees(d.amountPaise)} to ${d.billerName}. ${validity}`;
+    case 'CARD_UNBLOCK':
+      return `${d.otp} is your OTP to unblock your ${d.cardType === 'CREDIT' ? 'credit' : 'debit'} card ending ${d.last4}. ${validity}`;
+    case 'CARD_CONTROLS':
+      return `${d.otp} is your OTP to change limits on your ${d.cardType === 'CREDIT' ? 'credit' : 'debit'} card ending ${d.last4}. ${validity}`;
     case 'BENEFICIARY':
       return `${d.otp} is your OTP to add ${d.beneficiaryName} (${d.accountNoMasked}, ${d.bankName}) as a beneficiary. ${validity}`;
     default:
@@ -43,6 +49,22 @@ export function render(event) {
       return sms(`${d.mode} transfer of ${rupees(d.amountPaise)} to ${d.beneficiaryName} failed (${REASONS[d.reason] ?? 'declined'}). The amount has been credited back to A/c ${maskAccount(d.fromAccountNo)}. Ref ${d.reference}.`);
     case 'transfer.blocked':
       return sms(`We stopped a transfer of ${rupees(d.amountPaise)} to ${d.beneficiaryName} to protect your account. If it was you, please call customer care. Ref ${d.reference}.`);
+    case 'billpay.completed':
+      return sms(`${rupees(d.amountPaise)} paid to ${d.billerName} for ${d.consumerNumber} from A/c ${maskAccount(d.fromAccountNo)}. Ref ${d.reference}.`);
+    case 'billpay.failed':
+      return sms(`Your payment of ${rupees(d.amountPaise)} to ${d.billerName} could not be completed. No money was debited. Ref ${d.reference}.`);
+    case 'card.blocked':
+      return sms(d.permanent
+        ? `Your ${d.type === 'CREDIT' ? 'credit' : 'debit'} card ending ${d.last4} is permanently blocked. A replacement card will be sent to your registered address.`
+        : `Your ${d.type === 'CREDIT' ? 'credit' : 'debit'} card ending ${d.last4} is temporarily blocked. You can unblock it any time in net banking.`);
+    case 'card.unblocked':
+      return sms(`Your ${d.type === 'CREDIT' ? 'credit' : 'debit'} card ending ${d.last4} is active again. Not you? Block it immediately.`);
+    case 'card.limit.changed':
+      return sms(`Limits on your card ending ${d.last4} were updated. Not you? Call customer care.`);
+    case 'deposit.opened':
+      return sms(`Fixed deposit ${d.fdNo} of ${rupees(d.principalPaise)} opened at ${(d.rateBps / 100).toFixed(2)}% p.a. for ${d.tenureMonths} months. Maturity value ${rupees(d.maturityAmountPaise)}.`);
+    case 'deposit.closed':
+      return sms(`Fixed deposit ${d.fdNo} closed. ${rupees(d.payoutPaise)} credited to A/c ${maskAccount(d.accountNo)}.`);
     default:
       return null;
   }

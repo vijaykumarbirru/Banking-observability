@@ -22,7 +22,7 @@ docker compose logs seed         # "seed complete" = demo data is ready
 **Log in:** customer ID `VB100001` … `VB100020`, password `Welcome@123`.
 The OTP appears in the *Developer inbox* panel on the OTP page (simulated SMS).
 
-## Phase 1 services
+## Services
 
 | Service | Language | Role |
 |---|---|---|
@@ -33,9 +33,28 @@ The OTP appears in the *Developer inbox* panel on the OTP page (simulated SMS).
 | account-service | Java 21 / Spring Boot | Accounts; balances and recent transactions from the ledger |
 | ledger-service | Go | Double-entry ledger, atomic postings, idempotency |
 | notification-service | Node.js | Consumes RabbitMQ events, simulated SMS, developer inbox |
+| transfer-service | .NET 8 | Beneficiaries, limits, transfers with OTP, fraud check, ledger posting |
+| settlement-worker | .NET 8 | Simulated IMPS/NEFT/RTGS clearing, automatic reversals |
+| fraud-service | Python / FastAPI | Rule-based risk score (allow / flag / block) |
+| audit-service | Python | Append-only audit trail of every event (secrets redacted) |
+| statement-service | Go | Transaction history, PDF and CSV statements |
+| payment-service | Node.js | Bill payments (simulated billers) with OTP |
+| card-service | Kotlin / Ktor | Debit and credit cards: instant block, OTP to unblock or raise limits |
 | seed | Python | One-shot demo data through internal APIs |
 
+Fixed deposits live in account-service.
+
 Infrastructure: PostgreSQL 16 (one database per service), Redis 7, RabbitMQ 3.13, MongoDB 7.
+
+## Handy test data
+
+| What | How |
+|---|---|
+| Two accounts (own transfers) | VB100003, VB100006, VB100009 … (every 3rd customer) |
+| Credit card | VB100001, VB100003, VB100005 … (odd customers) |
+| Existing fixed deposit | VB100001, VB100004, VB100007 … |
+| See a transfer reversed | Send IMPS/NEFT to the beneficiary "Rejected Payee (test)" |
+| Bill with nothing due | Any consumer number ending in 0 |
 
 ## Useful commands
 

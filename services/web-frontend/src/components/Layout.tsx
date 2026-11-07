@@ -20,6 +20,9 @@ const NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: 'grid' },
   { to: '/transfers', label: 'Transfers', icon: 'transfer' },
   { to: '/beneficiaries', label: 'Beneficiaries', icon: 'users' },
+  { to: '/bills', label: 'Bills', icon: 'bill' },
+  { to: '/cards', label: 'Cards', icon: 'card' },
+  { to: '/deposits', label: 'Deposits', icon: 'fd' },
   { to: '/statements', label: 'Statements', icon: 'file' },
 ];
 
@@ -107,10 +110,6 @@ export default function Layout({
                 <span>{n.label}</span>
               </NavLink>
             ))}
-            <a className="disabled" title="Coming in Phase 3">
-              <Icon name="card" size={18} />
-              <span>Cards</span>
-            </a>
           </nav>
 
           <div className="header-tools">

@@ -7,6 +7,9 @@ import Dashboard from './pages/Dashboard';
 import Transfers from './pages/Transfers';
 import Beneficiaries from './pages/Beneficiaries';
 import Statements from './pages/Statements';
+import Bills from './pages/Bills';
+import Cards from './pages/Cards';
+import Deposits from './pages/Deposits';
 
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
 
@@ -53,6 +56,9 @@ export default function App() {
         ['/transfers', <Transfers />],
         ['/beneficiaries', <Beneficiaries />],
         ['/statements', <Statements />],
+        ['/bills', <Bills />],
+        ['/cards', <Cards />],
+        ['/deposits', <Deposits />],
       ].map(([path, el]) => (
         <Route key={path as string} path={path as string} element={<RequireSession>{el as JSX.Element}</RequireSession>} />
       ))}

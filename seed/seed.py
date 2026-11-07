@@ -18,6 +18,7 @@ CUSTOMER = os.getenv("CUSTOMER_URL", "http://customer-service:8082")
 ACCOUNT = os.getenv("ACCOUNT_URL", "http://account-service:8083")
 LEDGER = os.getenv("LEDGER_URL", "http://ledger-service:8084")
 TRANSFER = os.getenv("TRANSFER_URL", "http://transfer-service:8085")
+CARD = os.getenv("CARD_URL", "http://card-service:8091")
 IST = timezone(timedelta(hours=5, minutes=30))
 PASSWORD = os.getenv("SEED_PASSWORD", "Welcome@123")
 
@@ -118,11 +119,31 @@ def seed_beneficiaries(client, n, customer_id):
         })
 
 
+def seed_cards_and_deposits(client, rng, n, customer_id, name, accounts):
+    """A debit card per account, a credit card for every other customer, an FD for every third."""
+    for _, account_no in accounts:
+        call(client, "POST", f"{CARD}/internal/cards",
+             {"customerId": customer_id, "accountNo": account_no, "type": "DEBIT", "holderName": name})
+    if n % 2 == 1:
+        limit = rng.choice([1_00_000, 2_00_000, 3_50_000, 5_00_000]) * 100
+        call(client, "POST", f"{CARD}/internal/cards", {
+            "customerId": customer_id, "accountNo": None, "type": "CREDIT", "holderName": name,
+            "creditLimitPaise": limit, "outstandingPaise": rng.randint(5, 45) * limit // 100,
+        })
+    if n % 3 == 1:
+        savings = accounts[0][1]
+        balance = httpx.get(f"{LEDGER}/internal/balances?accounts={savings}").json()[0]["balancePaise"]
+        amount = min(balance // 4 // 100_000 * 100_000, 5_00_000_00)  # a quarter of the balance, whole thousands
+        if amount >= 10_000_00:
+            call(client, "POST", f"{ACCOUNT}/internal/deposits",
+                 {"customerId": customer_id, "fundingAccountNo": savings, "amountPaise": amount, "tenureMonths": 12})
+
+
 def main() -> None:
     with httpx.Client(timeout=15) as client:
         for name, url in [("ledger-service", LEDGER), ("auth-service", AUTH),
                           ("customer-service", CUSTOMER), ("account-service", ACCOUNT),
-                          ("transfer-service", TRANSFER)]:
+                          ("transfer-service", TRANSFER), ("card-service", CARD)]:
             wait_for(client, name, url)
 
         rng = random.Random(42)  # deterministic: same data on every machine
@@ -160,6 +181,7 @@ def main() -> None:
                         "OPENING_BALANCE_EQUITY", account_no, opening, "OPENING BALANCE")
                 seed_history(client, rng, account_no, opening, start, acct_type == "SAVINGS", city)
             seed_beneficiaries(client, n, customer_id)
+            seed_cards_and_deposits(client, rng, n, customer_id, f"{first} {last}", accounts)
             print(f"seeded {customer_id} ({first} {last}) with {len(accounts)} account(s)", flush=True)
 
     print("seed complete: log in with VB100001..VB100020 / " + PASSWORD, flush=True)

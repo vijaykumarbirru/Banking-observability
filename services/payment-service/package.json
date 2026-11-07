@@ -1,0 +1,15 @@
+{
+  "name": "payment-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "amqplib": "0.10.5",
+    "express": "4.21.2",
+    "pg": "8.13.1"
+  }
+}
