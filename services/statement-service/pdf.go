@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	brand = [3]int{14, 90, 99}
+	brand = [3]int{30, 42, 74}
 	ink   = [3]int{22, 36, 43}
 	muted = [3]int{100, 116, 139}
 	line  = [3]int{226, 232, 240}
@@ -68,7 +68,7 @@ func writePDF(w io.Writer, a *account, c customer, p period, sum summary, items 
 	// Brand bar
 	pdf.SetFillColor(brand[0], brand[1], brand[2])
 	pdf.Rect(0, 0, 210, 26, "F")
-	pdf.SetFillColor(245, 185, 66)
+	pdf.SetFillColor(232, 89, 12)
 	pdf.Rect(15, 8, 10, 10, "F")
 	pdf.SetXY(28, 8)
 	pdf.SetFont("Helvetica", "B", 18)
