@@ -59,8 +59,7 @@ export default function Statements() {
   const pages = data ? Math.max(1, Math.ceil(data.total / data.size)) : 1;
 
   return (
-    <Layout>
-      <h1>Account statement</h1>
+    <Layout title="Account statement" subtitle="Search transactions and download PDF or CSV statements">
       <form
         className="card filters"
         onSubmit={(e: FormEvent) => {

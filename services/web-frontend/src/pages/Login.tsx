@@ -1,7 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError, post } from '../api';
-import AuthShell, { Icon } from '../components/AuthShell';
+import AuthShell from '../components/AuthShell';
+import Icon from '../components/Icon';
 
 export default function Login() {
   const navigate = useNavigate();

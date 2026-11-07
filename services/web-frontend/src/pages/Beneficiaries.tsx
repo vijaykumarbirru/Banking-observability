@@ -64,8 +64,7 @@ export default function Beneficiaries() {
   }
 
   return (
-    <Layout>
-      <h1>Beneficiaries</h1>
+    <Layout title="Beneficiaries" subtitle="People and businesses you send money to">
       <div className="grid-2">
         <div className="card">
           <h3>Saved beneficiaries</h3>

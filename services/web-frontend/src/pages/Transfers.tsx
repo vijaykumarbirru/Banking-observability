@@ -104,8 +104,7 @@ export default function Transfers() {
   }
 
   return (
-    <Layout>
-      <h1>Fund transfer</h1>
+    <Layout title="Fund transfer" subtitle="Send money to your own accounts, VijayBank customers or any bank in India">
       <div className="grid-2">
         <form className="card" onSubmit={submit}>
           <div className="tabs">

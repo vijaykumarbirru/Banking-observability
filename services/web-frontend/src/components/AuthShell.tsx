@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
 import Brand from './Brand';
+import Icon from './Icon';
 
 // All offers are fictional and illustrative — VijayBank is a learning project.
 const SLIDES = [
@@ -49,30 +50,6 @@ const TIPS = [
   { icon: 'eye', title: 'Check the address bar', text: 'Always type the web address yourself and look for the padlock before logging in.' },
   { icon: 'alert', title: 'Report fraud at once', text: 'Block your card from the app and call customer care if you see a transaction you did not make.' },
 ];
-
-export function Icon({ name, size = 24 }: { name: string; size?: number }) {
-  const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
-  const paths: Record<string, ReactNode> = {
-    growth: <><path {...p} d="M3 17l6-6 4 4 8-8" /><path {...p} d="M15 7h6v6" /></>,
-    card: <><rect {...p} x="2.5" y="5" width="19" height="14" rx="2.5" /><path {...p} d="M2.5 10h19M6.5 15h4" /></>,
-    home: <><path {...p} d="M3 11l9-7 9 7" /><path {...p} d="M5 10v10h14V10M10 20v-6h4v6" /></>,
-    send: <><path {...p} d="M21 3L10 14" /><path {...p} d="M21 3l-7 18-4-7-7-4 18-7z" /></>,
-    wallet: <><path {...p} d="M3 7a2 2 0 012-2h13v4" /><rect {...p} x="3" y="7" width="18" height="13" rx="2" /><path {...p} d="M16 13.5h2" /></>,
-    gift: <><rect {...p} x="3" y="8" width="18" height="4" rx="1" /><path {...p} d="M5 12v8h14v-8M12 8v12M12 8S10.5 4 8 4a2 2 0 000 4h4zM12 8s1.5-4 4-4a2 2 0 010 4h-4z" /></>,
-    shield: <><path {...p} d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z" /><path {...p} d="M9 12l2 2 4-4" /></>,
-    plane: <path {...p} d="M10.5 13.5L3 11l1.5-1.5 7.5 1 4-4c1-1 3-1.5 3.5-1s0 2.5-1 3.5l-4 4 1 7.5L14 22l-2.5-7.5-3 3V20l-1.5 1-1-3-3-1 1-1.5h2.5l3-3z" />,
-    lock: <><rect {...p} x="4" y="10" width="16" height="11" rx="2" /><path {...p} d="M8 10V7a4 4 0 018 0v3M12 14v3" /></>,
-    eye: <><path {...p} d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle {...p} cx="12" cy="12" r="3" /></>,
-    alert: <><path {...p} d="M12 3l9.5 17h-19L12 3z" /><path {...p} d="M12 10v4M12 17.5v.01" /></>,
-    phone: <path {...p} d="M5 3h4l2 5-2.5 1.5a11 11 0 006 6L16 13l5 2v4a2 2 0 01-2 2A17 17 0 013 5a2 2 0 012-2z" />,
-    pin: <><path {...p} d="M12 21s7-6.2 7-12a7 7 0 00-14 0c0 5.8 7 12 7 12z" /><circle {...p} cx="12" cy="9" r="2.5" /></>,
-  };
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      {paths[name]}
-    </svg>
-  );
-}
 
 function Carousel() {
   const [i, setI] = useState(0);
