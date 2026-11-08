@@ -159,6 +159,8 @@ public sealed class EventBus(IConfiguration config, ILogger<EventBus> log) : IDi
         {
             eventId, type, occurredAt = DateTime.UtcNow, customerId, requestId = RequestContext.RequestId, data,
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var headers = new Dictionary<string, object> { ["x-request-id"] = RequestContext.RequestId ?? "" };
+        using var activity = Telemetry.StartPublish("vijaybank.events", type, headers);
 
         lock (gate)
         {
@@ -171,7 +173,7 @@ public sealed class EventBus(IConfiguration config, ILogger<EventBus> log) : IDi
                     props.Persistent = true;
                     props.ContentType = "application/json";
                     props.MessageId = eventId;
-                    props.Headers = new Dictionary<string, object> { ["x-request-id"] = RequestContext.RequestId ?? "" };
+                    props.Headers = headers;
                     ch.BasicPublish("vijaybank.events", type, props, payload);
                     ch.WaitForConfirmsOrDie(TimeSpan.FromSeconds(5));
                     return;

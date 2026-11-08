@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func env(key, def string) string {
@@ -31,25 +32,31 @@ func env(key, def string) string {
 var ist = time.FixedZone("IST", 5*3600+30*60)
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "statement-service"))
+	slog.SetDefault(slog.New(traceHandler{slog.NewJSONHandler(os.Stdout, nil)}).With("service", "statement-service"))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	otelShutdown := setupOTel(ctx)
+	defer func() {
+		flush, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(flush)
+	}()
 
 	s := &server{
 		ledger:   env("LEDGER_URL", "http://ledger-service:8084"),
 		account:  env("ACCOUNT_URL", "http://account-service:8083"),
 		customer: env("CUSTOMER_URL", "http://customer-service:8082"),
-		http:     &http.Client{Timeout: 10 * time.Second},
+		http:     &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
 	}
 	r := chi.NewRouter()
-	r.Use(requestID, accessLog, middleware.Recoverer)
+	r.Use(requestID, spanName, accessLog, middleware.Recoverer)
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "UP"}) })
 	r.Get("/health/ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "UP"}) })
 	r.Get("/accounts/{accountNo}/transactions", s.transactions)
 	r.Get("/accounts/{accountNo}/statement.pdf", s.statement("pdf"))
 	r.Get("/accounts/{accountNo}/statement.csv", s.statement("csv"))
 
-	srv := &http.Server{Addr: ":" + env("PORT", "8089"), Handler: r, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: ":" + env("PORT", "8089"), Handler: instrument(r), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -255,7 +262,7 @@ func (s *server) statement(format string) http.HandlerFunc {
 		name := fmt.Sprintf("VijayBank_Statement_%s_%s_%s.%s", maskAccount(a.AccountNo), p.from.Format("20060102"), p.to.Format("20060102"), format)
 		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 		w.Header().Set("Cache-Control", "no-store")
-		slog.Info("statement generated", "requestId", reqID(r), "format", format, "entries", len(items))
+		slog.InfoContext(r.Context(), "statement generated", "requestId", reqID(r), "format", format, "entries", len(items))
 
 		if format == "csv" {
 			w.Header().Set("Content-Type", "text/csv; charset=utf-8")

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
@@ -30,6 +31,7 @@ public sealed class StatusConsumer(Store store, IConfiguration config, ILogger<S
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.Received += async (_, ea) =>
         {
+            using var activity = Telemetry.StartProcess(Queue, ea.BasicProperties);
             RequestContext.RequestId = EventBus.Header(ea.BasicProperties, "x-request-id");
             using var scope = log.BeginScope(new Dictionary<string, object?> { ["requestId"] = RequestContext.RequestId });
             try
@@ -50,6 +52,7 @@ public sealed class StatusConsumer(Store store, IConfiguration config, ILogger<S
             }
             catch (Exception e)
             {
+                activity?.SetStatus(ActivityStatusCode.Error, e.Message);
                 log.LogError(e, "could not apply status update, dead-lettering");
                 channel.BasicNack(ea.DeliveryTag, false, requeue: false);
             }

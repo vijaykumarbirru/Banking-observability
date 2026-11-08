@@ -8,6 +8,8 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "0.52.0",
     "amqplib": "0.10.5",
     "express": "4.21.2",
     "pg": "8.13.1"

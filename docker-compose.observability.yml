@@ -1,0 +1,244 @@
+# Settings shared by every instrumented service: where to send telemetry and
+# labels attached to everything it emits.
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=local,service.namespace=vijaybank
+  # Logs are read from container stdout by Filebeat (-> Elasticsearch -> Kibana), not sent over OTLP.
+  OTEL_LOGS_EXPORTER: none
+
+# Docker Desktop's default "local" log driver writes a binary format Filebeat cannot read;
+# json-file writes <id>-json.log, which Filebeat tails. Rotated at 10 MB x 3 files.
+x-json-logs: &json-logs
+  driver: json-file
+  options: { max-size: 10m, max-file: "3" }
+
+services:
+  # ---- Instrumented bank services (merged into docker-compose.yml) ----
+
+  # Java / Kotlin: the OpenTelemetry Java agent (zero code changes).
+  auth-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: auth-service
+      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar
+      # Push metrics every 15 s (default 60 s) so the OTP-failure alert reacts quickly.
+      OTEL_METRIC_EXPORT_INTERVAL: "15000"
+
+  account-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: account-service
+      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar
+
+  card-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: card-service
+      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar
+
+  # Python: the opentelemetry-instrument launcher (zero code changes).
+  customer-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: customer-service
+      OTEL_PYTHON_EXCLUDED_URLS: health
+      OTEL_PYTHON_DISABLED_INSTRUMENTATIONS: fastapi   # instrumented in main.py instead
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+
+  fraud-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: fraud-service
+      OTEL_PYTHON_EXCLUDED_URLS: health
+      OTEL_PYTHON_DISABLED_INSTRUMENTATIONS: fastapi   # instrumented in main.py instead
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+
+  audit-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: audit-service
+      OTEL_PYTHON_EXCLUDED_URLS: health
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+
+  # Node.js: auto-instrumentations loaded through NODE_OPTIONS (zero code changes).
+  notification-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: notification-service
+      OTEL_NODE_DISABLED_INSTRUMENTATIONS: fs,dns,net
+      NODE_OPTIONS: >-
+        --require @opentelemetry/auto-instrumentations-node/register
+        --experimental-loader=@opentelemetry/instrumentation/hook.mjs
+
+  payment-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: payment-service
+      OTEL_NODE_DISABLED_INSTRUMENTATIONS: fs,dns,net
+      NODE_OPTIONS: >-
+        --require @opentelemetry/auto-instrumentations-node/register
+        --experimental-loader=@opentelemetry/instrumentation/hook.mjs
+
+  # Go: OpenTelemetry SDK set up in otel.go (otelhttp, otelpgx, redisotel); enabled by the OTLP endpoint.
+  api-gateway:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: api-gateway
+
+  ledger-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: ledger-service
+
+  statement-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: statement-service
+
+  # .NET: OpenTelemetry SDK set up in Telemetry.cs (ASP.NET Core, HttpClient, Npgsql, RabbitMQ headers).
+  transfer-service:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: transfer-service
+
+  settlement-worker:
+    logging: *json-logs
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: settlement-worker
+
+  # Static files from nginx: logs only, no tracing.
+  web-frontend:
+    logging: *json-logs
+
+  # ---- Observability back-ends ----
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+ 
+  tempo:
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+ 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+ 
+  grafana:
+    image: grafana/grafana:11.2.2
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+  # ---- Infrastructure exporters (scraped by Prometheus) ----
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres?sslmode=disable
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.63.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+
+  mongodb-exporter:
+    image: percona/mongodb_exporter:0.40.0
+    restart: unless-stopped
+    command: ["--mongodb.uri=mongodb://mongodb:27017", "--collect-all", "--compatible-mode"]
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.5
+    restart: unless-stopped
+    privileged: true
+    command: ["--docker_only=true", "--housekeeping_interval=15s"]
+    volumes:
+      # Docker Desktop: mount the sockets themselves (paths are inside Docker's Linux VM).
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  # Calls each bank service's /health/ready for Prometheus (probe_success = 1 UP, 0 DOWN).
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    restart: unless-stopped
+
+  # ---- Logs: Filebeat -> Elasticsearch -> Kibana ----
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"                       # local lab only: no login, no TLS
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      retries: 30
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.3
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.15.3
+    restart: unless-stopped
+    user: root                                              # Docker's log files are root-owned
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./observability/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+volumes:
+  grafana-data:

@@ -25,7 +25,9 @@ handler.setFormatter(jsonlogger.JsonFormatter(
     "%(asctime)s %(levelname)s %(name)s %(message)s",
     rename_fields={"asctime": "timestamp", "levelname": "level"},
     static_fields={"service": "audit-service"}))
-logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+# Add (not replace) so the OpenTelemetry log handler, when present, keeps shipping logs.
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().addHandler(handler)
 logging.getLogger("pika").setLevel(logging.WARNING)
 log = logging.getLogger("audit")
 

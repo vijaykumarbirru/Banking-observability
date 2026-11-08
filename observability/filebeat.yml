@@ -1,0 +1,72 @@
+# Filebeat: ships the stdout/stderr of every VijayBank container to Elasticsearch.
+# Docs: https://www.elastic.co/guide/en/beats/filebeat/8.15/index.html
+
+# Watch Docker and start one input per container of the "vijaybank" compose project.
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      templates:
+        # Compose names containers <project>-<service>-<n>, e.g. vijaybank-auth-service-1.
+        - condition:
+            and:
+              - regexp:
+                  docker.container.name: "^vijaybank-"
+              - not:
+                  regexp:
+                    docker.container.name: "^vijaybank-filebeat-"
+          config:
+            - type: filestream
+              id: container-${data.docker.container.id}
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*-json.log
+              parsers:
+                - container: ~          # unwrap Docker's {"log": ..., "stream": ..., "time": ...} lines
+
+processors:
+  # The bank services log one JSON object per line; keep the original fields under app.*.
+  - decode_json_fields:
+      fields: ["message"]
+      target: app
+  # Map the four JSON shapes (Java, Python, Node/Go, .NET) onto common fields.
+  - script:
+      lang: javascript
+      source: |
+        function process(event) {
+          var msg = event.Get("app.message") || event.Get("app.msg") || event.Get("app.Message");
+          if (msg) event.Put("message", String(msg));
+          var lvl = event.Get("app.level") || event.Get("app.LogLevel");
+          if (lvl) {
+            lvl = String(lvl).toUpperCase();
+            event.Put("log.level", { INFORMATION: "INFO", WARNING: "WARN", CRITICAL: "FATAL" }[lvl] || lvl);
+          }
+          var trace = event.Get("app.otelTraceID") || event.Get("app.trace_id") || event.Get("app.traceId");
+          if (!trace) {                                // .NET: TraceId sits in the "Scopes" list
+            var scopes = event.Get("app.Scopes") || [];
+            for (var i = 0; i < scopes.length && !trace; i++) trace = scopes[i] && scopes[i].TraceId;
+          }
+          if (trace && trace !== "0") event.Put("trace.id", String(trace));
+          var name = event.Get("container.name");     // vijaybank-auth-service-1 -> auth-service
+          if (name) event.Put("service.name", String(name).replace(/^vijaybank-/, "").replace(/-\d+$/, ""));
+        }
+  # Health checks run every few seconds in every container and would bury everything else.
+  - drop_event:
+      when:
+        regexp:
+          message: "/health/(live|ready)"
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  index: vijaybank-logs
+
+# Index template for the vijaybank-logs data stream.
+setup.ilm.enabled: false
+setup.template.name: vijaybank-logs
+setup.template.pattern: vijaybank-logs*
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 0         # single node: replicas could never be placed
+setup.template.append_fields:
+  # Services log fields with clashing types (e.g. "error" as text in one, object in another).
+  # flattened stores every app.* value as a keyword, so no log is ever rejected for a type clash.
+  - name: app
+    type: flattened

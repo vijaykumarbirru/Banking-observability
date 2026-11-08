@@ -2,6 +2,10 @@ package com.vijaybank.auth;
 
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.vijaybank.auth.web.ApiException;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.metrics.LongCounter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -10,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -25,6 +30,30 @@ public class AuthService {
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
     private static final Pattern CUSTOMER_ID = Pattern.compile("VB\\d{6}");
     private static final SecureRandom RANDOM = new SecureRandom();
+
+    // OTP outcomes as a metric (Prometheus: vijaybank_otp_verifications_total{purpose, result}).
+    // Never add the customer ID as an attribute: one series per customer would explode the metric.
+    private static final LongCounter OTP_VERIFICATIONS = GlobalOpenTelemetry.getMeter("vijaybank.auth")
+            .counterBuilder("vijaybank.otp.verifications")
+            .setDescription("OTP verification attempts by purpose and result")
+            .build();
+    private static final AttributeKey<String> PURPOSE = AttributeKey.stringKey("purpose");
+    private static final AttributeKey<String> RESULT = AttributeKey.stringKey("result");
+    private static final List<String> RESULTS = List.of("SUCCESS", "INVALID_OTP", "OTP_EXPIRED", "OTP_ATTEMPTS_EXCEEDED");
+    // OTPs sent (Prometheus: vijaybank_otp_sent_total{purpose}).
+    private static final LongCounter OTP_SENT = GlobalOpenTelemetry.getMeter("vijaybank.auth")
+            .counterBuilder("vijaybank.otp.sent")
+            .setDescription("OTPs sent by purpose")
+            .build();
+    // Purposes the services use today; their series exist from start-up so the first OTP is counted.
+    private static final List<String> PURPOSES = List.of("LOGIN", "BENEFICIARY", "TRANSFER", "BILLPAY", "CARD_UNBLOCK", "CARD_CONTROLS");
+
+    static {
+        PURPOSES.forEach(purpose -> {
+            OTP_SENT.add(0, Attributes.of(PURPOSE, purpose));
+            initOtpSeries(purpose);
+        });
+    }
 
     private final CredentialRepository credentials;
     private final PasswordEncoder encoder;
@@ -96,6 +125,7 @@ public class AuthService {
         events.publish("auth.otp.requested", customerId, Map.of(
                 "purpose", "LOGIN", "channel", "SMS", "otp", otp,
                 "expiresInSeconds", props.otpTtl().toSeconds()));
+        OTP_SENT.add(1, Attributes.of(PURPOSE, "LOGIN"));
         log.info("otp sent customerId={}", customerId);
         return new LoginResult(loginToken, props.otpTtl().toSeconds());
     }
@@ -108,6 +138,7 @@ public class AuthService {
         String key = "login:" + loginToken;
         Map<Object, Object> pending = redis.opsForHash().entries(key);
         if (pending.isEmpty()) {
+            recordOtp("LOGIN", "OTP_EXPIRED");
             throw new ApiException(HttpStatus.UNAUTHORIZED, "OTP_EXPIRED", "The OTP has expired. Please log in again.");
         }
         long attempts = redis.opsForHash().increment(key, "attempts", 1);
@@ -119,13 +150,16 @@ public class AuthService {
             if (attempts >= props.otpMaxAttempts()) {
                 redis.delete(key);
                 events.publish("auth.login.failed", customerId, Map.of("reason", "OTP_ATTEMPTS_EXCEEDED"));
+                recordOtp("LOGIN", "OTP_ATTEMPTS_EXCEEDED");
                 throw new ApiException(HttpStatus.UNAUTHORIZED, "OTP_ATTEMPTS_EXCEEDED",
                         "Too many wrong OTPs. Please log in again.");
             }
+            recordOtp("LOGIN", "INVALID_OTP");
             throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_OTP", "The OTP is incorrect.",
                     Map.of("attemptsRemaining", props.otpMaxAttempts() - attempts));
         }
         redis.delete(key);
+        recordOtp("LOGIN", "SUCCESS");
         credentials.markLogin(customerId);
         events.publish("auth.login.succeeded", customerId, Map.of("method", "PASSWORD_OTP"));
         log.info("login succeeded customerId={}", customerId);
@@ -179,6 +213,8 @@ public class AuthService {
         data.put("otp", otp);
         data.put("expiresInSeconds", props.otpTtl().toSeconds());
         events.publish("auth.otp.requested", customerId, data);
+        initOtpSeries(purpose);
+        OTP_SENT.add(1, Attributes.of(PURPOSE, purpose));
         log.info("step-up otp sent customerId={} purpose={}", customerId, purpose);
         return new LoginResult(ref, props.otpTtl().toSeconds());
     }
@@ -192,6 +228,7 @@ public class AuthService {
         Map<Object, Object> pending = redis.opsForHash().entries(key);
         if (pending.isEmpty() || !pending.get("customerId").equals(customerId)
                 || (purpose != null && !pending.get("purpose").equals(purpose))) {
+            recordOtp(purpose, "OTP_EXPIRED");
             throw new ApiException(HttpStatus.UNAUTHORIZED, "OTP_EXPIRED", "The OTP has expired. Please start again.");
         }
         long attempts = redis.opsForHash().increment(key, "attempts", 1);
@@ -201,12 +238,29 @@ public class AuthService {
         if (!matches) {
             if (attempts >= props.otpMaxAttempts()) {
                 redis.delete(key);
+                recordOtp(purpose, "OTP_ATTEMPTS_EXCEEDED");
                 throw new ApiException(HttpStatus.UNAUTHORIZED, "OTP_ATTEMPTS_EXCEEDED", "Too many wrong OTPs. Please start again.");
             }
+            recordOtp(purpose, "INVALID_OTP");
             throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_OTP", "The OTP is incorrect.",
                     Map.of("attemptsRemaining", props.otpMaxAttempts() - attempts));
         }
         redis.delete(key);
+        recordOtp(purpose, "SUCCESS");
+    }
+
+    private static void recordOtp(String purpose, String result) {
+        OTP_VERIFICATIONS.add(1, Attributes.of(PURPOSE, purpose == null ? "UNKNOWN" : purpose, RESULT, result));
+    }
+
+    /**
+     * Starts every result series for a purpose at 0, so the first failure shows up in
+     * increase()/rate() instead of being the series' first sample.
+     */
+    private static void initOtpSeries(String purpose) {
+        for (String result : RESULTS) {
+            OTP_VERIFICATIONS.add(0, Attributes.of(PURPOSE, purpose, RESULT, result));
+        }
     }
 
     public boolean createCredential(String customerId, String password) {

@@ -2,11 +2,13 @@
 // Consumes transfer.debited; after a mode-specific delay it either settles the
 // money out of the clearing account or reverses it back to the customer, and
 // publishes transfer.settled / transfer.failed.
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using VijayBank.Settlement;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -16,6 +18,7 @@ builder.Logging.AddJsonConsole(o =>
     o.UseUtcTimestamp = true;
     o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
 });
+builder.AddTelemetry();
 builder.WebHost.UseUrls($"http://0.0.0.0:{builder.Configuration["PORT"] ?? "8092"}");
 builder.Services.AddHttpClient("ledger", c =>
 {
@@ -72,6 +75,7 @@ sealed class Worker(IHttpClientFactory http, IConfiguration config, ILogger<Work
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.Received += async (_, ea) =>
         {
+            using var activity = Telemetry.StartProcess(Queue, ea.BasicProperties);
             var requestId = ea.BasicProperties.Headers?.TryGetValue("x-request-id", out var h) == true && h is byte[] b
                 ? Encoding.UTF8.GetString(b) : null;
             using var scope = log.BeginScope(new Dictionary<string, object?> { ["requestId"] = requestId });
@@ -83,6 +87,7 @@ sealed class Worker(IHttpClientFactory http, IConfiguration config, ILogger<Work
             }
             catch (Exception e) when (!stoppingToken.IsCancellationRequested)
             {
+                activity?.SetStatus(ActivityStatusCode.Error, e.Message);
                 // Leave it for redelivery: every ledger posting below is idempotent.
                 log.LogError(e, "settlement failed, will be redelivered");
                 await Task.Delay(2000, stoppingToken);
@@ -174,13 +179,15 @@ sealed class Worker(IHttpClientFactory http, IConfiguration config, ILogger<Work
         {
             eventId, type, occurredAt = DateTime.UtcNow, customerId, requestId, data,
         }, Json);
+        var headers = new Dictionary<string, object> { ["x-request-id"] = requestId ?? "" };
+        using var activity = Telemetry.StartPublish("vijaybank.events", type, headers);
         lock (publishGate)
         {
             var props = publishChannel!.CreateBasicProperties();
             props.Persistent = true;
             props.ContentType = "application/json";
             props.MessageId = eventId;
-            props.Headers = new Dictionary<string, object> { ["x-request-id"] = requestId ?? "" };
+            props.Headers = headers;
             publishChannel.BasicPublish("vijaybank.events", type, props, body);
             publishChannel.WaitForConfirmsOrDie(TimeSpan.FromSeconds(5));
         }

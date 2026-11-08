@@ -1,6 +1,7 @@
 // payment-service: bill payments. Fetch a bill from a (simulated) biller,
 // pay it from a savings/current account after a step-up OTP, and keep history.
 import crypto from 'node:crypto';
+import { trace } from '@opentelemetry/api';
 import amqp from 'amqplib';
 import express from 'express';
 import pg from 'pg';
@@ -13,8 +14,16 @@ const LEDGER_URL = process.env.LEDGER_URL || 'http://ledger-service:8084';
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://vijaybank:vijaybank_pw@rabbitmq:5672';
 const MAX_PAISE = 1_00_000 * 100; // ₹1,00,000 per bill
 
+// trace_id / span_id link a log line to its trace in Grafana (empty when there is no active span).
+const traceFields = () => {
+  const sc = trace.getActiveSpan()?.spanContext();
+  return sc ? { trace_id: sc.traceId, span_id: sc.spanId } : {};
+};
+
 const log = (level, message, fields = {}) =>
-  process.stdout.write(JSON.stringify({ timestamp: new Date().toISOString(), level, service: 'payment-service', message, ...fields }) + '\n');
+  process.stdout.write(
+    JSON.stringify({ timestamp: new Date().toISOString(), level, service: 'payment-service', message, ...traceFields(), ...fields }) + '\n',
+  );
 
 class ApiError extends Error {
   constructor(status, code, message, details = {}) {

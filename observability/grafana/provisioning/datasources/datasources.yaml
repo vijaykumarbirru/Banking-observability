@@ -1,0 +1,91 @@
+apiVersion: 1
+
+# Loki was removed (logs now go to Elasticsearch/Kibana); delete it from Grafana's database too.
+deleteDatasources:
+  - name: Loki
+    orgId: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+ 
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    url: http://tempo:3200
+ 
+  # ---- Business data: read-only access to the bank databases (user grafana_ro) ----
+  - name: "PG Transfers"
+    uid: pg-transfer
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_ro
+    jsonData:
+      database: transfer
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: grafana_ro_pw
+
+  - name: "PG Payments"
+    uid: pg-payment
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_ro
+    jsonData:
+      database: payment
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: grafana_ro_pw
+
+  - name: "PG Cards"
+    uid: pg-card
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_ro
+    jsonData:
+      database: card
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: grafana_ro_pw
+
+  - name: "PG Accounts & deposits"
+    uid: pg-account
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_ro
+    jsonData:
+      database: account
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: grafana_ro_pw
+
+  - name: "PG Auth"
+    uid: pg-auth
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_ro
+    jsonData:
+      database: auth
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: grafana_ro_pw
+
+  - name: "PG Ledger"
+    uid: pg-ledger
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_ro
+    jsonData:
+      database: ledger
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: grafana_ro_pw
+

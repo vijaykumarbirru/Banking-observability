@@ -36,7 +36,9 @@ handler.setFormatter(jsonlogger.JsonFormatter(
     "%(asctime)s %(levelname)s %(name)s %(message)s",
     rename_fields={"asctime": "timestamp", "levelname": "level"}))
 handler.addFilter(ContextFilter())
-logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+# Add (not replace) so the OpenTelemetry log handler, when present, keeps shipping logs.
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().addHandler(handler)
 logging.getLogger("pika").setLevel(logging.WARNING)
 log = logging.getLogger("fraud")
 
@@ -139,3 +141,13 @@ def live():
 @app.get("/health/ready")
 def ready():
     return {"status": "UP"}
+
+
+# Tracing middleware is added last so it wraps request_context: access-log lines then
+# carry the trace id. Auto-instrumentation would add it first (inside request_context),
+# so docker-compose.observability.yml disables that with OTEL_PYTHON_DISABLED_INSTRUMENTATIONS.
+try:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    FastAPIInstrumentor.instrument_app(app)
+except ImportError:  # running without opentelemetry-instrument
+    pass

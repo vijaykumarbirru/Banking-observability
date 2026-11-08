@@ -17,6 +17,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/time/rate"
 )
 
@@ -38,14 +39,14 @@ type jwks struct {
 
 func newJWKS(url string) *jwks { return &jwks{url: url, keys: map[string]*rsa.PublicKey{}} }
 
-func (k *jwks) key(kid string) (*rsa.PublicKey, error) {
+func (k *jwks) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	k.mu.RLock()
 	key, ok := k.keys[kid]
 	k.mu.RUnlock()
 	if ok {
 		return key, nil
 	}
-	if err := k.refresh(); err != nil {
+	if err := k.refresh(ctx); err != nil {
 		return nil, err
 	}
 	k.mu.RLock()
@@ -56,15 +57,19 @@ func (k *jwks) key(kid string) (*rsa.PublicKey, error) {
 	return nil, fmt.Errorf("unknown key id %q", kid)
 }
 
-func (k *jwks) refresh() error {
+func (k *jwks) refresh(ctx context.Context) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if time.Since(k.lastFetch) < 5*time.Second {
 		return nil // avoid hammering auth-service with bad tokens
 	}
 	k.lastFetch = time.Now()
-	client := http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(k.url)
+	client := http.Client{Timeout: 3 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -102,7 +107,7 @@ func authenticate(keys *jwks, rdb *redis.Client) func(http.Handler) http.Handler
 			claims := jwt.MapClaims{}
 			_, err := parser.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
 				kid, _ := t.Header["kid"].(string)
-				return keys.key(kid)
+				return keys.key(r.Context(), kid)
 			})
 			if err != nil {
 				code := "INVALID_TOKEN"
@@ -117,7 +122,7 @@ func authenticate(keys *jwks, rdb *redis.Client) func(http.Handler) http.Handler
 			// Logged-out tokens stay on a deny-list until they would have expired.
 			if n, err := rdb.Exists(r.Context(), "deny:"+jti).Result(); err != nil || n > 0 {
 				if err != nil {
-					slog.Error("deny-list check failed", "requestId", reqID(r), "error", err)
+					slog.ErrorContext(r.Context(), "deny-list check failed", "requestId", reqID(r), "error", err)
 				}
 				writeError(w, r, 401, "INVALID_TOKEN", "session is not valid, please log in again")
 				return

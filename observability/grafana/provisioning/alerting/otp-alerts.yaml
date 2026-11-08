@@ -1,0 +1,39 @@
+# Grafana alert rules loaded at start-up (Alerting -> Alert rules -> VijayBank).
+# Docs: https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: security
+    folder: VijayBank
+    interval: 1m                       # evaluate every minute
+    rules:
+      - uid: vb-otp-failures
+        title: OTP failures
+        condition: C
+        data:
+          # A: failed OTPs in the last 5 minutes, one series per purpose (LOGIN, BILLPAY, ...)
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: sum by (purpose) (increase(vijaybank_otp_verifications_total{result!="SUCCESS"}[5m]))
+          # C: fire when the count is above 0
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK                # no failures recorded = healthy
+        execErrState: Error
+        for: 0s                        # fire on the first evaluation that sees a failure
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: '{{ printf "%.0f" $values.A.Value }} OTP failure(s) for {{ $labels.purpose }} in the last 5 minutes'
+          description: Wrong, expired or exhausted OTPs reported by auth-service. Many in a short time can mean someone is guessing OTPs.

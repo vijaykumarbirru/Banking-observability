@@ -1,0 +1,45 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+ 
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+  batch:
+    timeout: 5s
+ 
+connectors:
+  spanmetrics:
+    exemplars:
+      enabled: true
+ 
+exporters:
+  debug:
+    verbosity: basic
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    enable_open_metrics: true
+    # Copy resource attributes (service.name, ...) onto every metric as labels,
+    # so app metrics such as JVM memory can be filtered by service_name.
+    resource_to_telemetry_conversion:
+      enabled: true
+ 
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug, otlp/tempo, spanmetrics]
+    metrics:
+      receivers: [otlp, spanmetrics]
+      processors: [memory_limiter, batch]
+      exporters: [debug, prometheus]

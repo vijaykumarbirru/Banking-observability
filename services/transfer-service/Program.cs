@@ -12,6 +12,7 @@ builder.Logging.AddJsonConsole(o =>
     o.UseUtcTimestamp = true;
     o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
 });
+builder.AddTelemetry();
 builder.WebHost.UseUrls($"http://0.0.0.0:{builder.Configuration["PORT"] ?? "8085"}");
 
 var cfg = builder.Configuration;

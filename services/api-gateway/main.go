@@ -18,7 +18,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func env(key, def string) string {
@@ -29,12 +31,21 @@ func env(key, def string) string {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "api-gateway"))
+	slog.SetDefault(slog.New(traceHandler{slog.NewJSONHandler(os.Stdout, nil)}).With("service", "api-gateway"))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	otelShutdown := setupOTel(ctx)
+	defer func() {
+		flush, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(flush)
+	}()
 
 	rdb := redis.NewClient(&redis.Options{Addr: env("REDIS_ADDR", "redis:6379")})
+	if err := redisotel.InstrumentTracing(rdb); err != nil {
+		slog.Error("redis tracing", "error", err)
+	}
 	keys := newJWKS(env("AUTH_JWKS_URL", "http://auth-service:8081/.well-known/jwks.json"))
 
 	auth := proxy(env("AUTH_URL", "http://auth-service:8081"))
@@ -50,7 +61,7 @@ func main() {
 	burst, _ := strconv.Atoi(env("RATE_LIMIT_BURST", "40"))
 
 	r := chi.NewRouter()
-	r.Use(requestID, accessLog, middleware.Recoverer)
+	r.Use(requestID, spanName, accessLog, middleware.Recoverer)
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "UP"}) })
 	r.Get("/health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := rdb.Ping(r.Context()).Err(); err != nil {
@@ -100,7 +111,7 @@ func main() {
 		writeError(w, r, 404, "NOT_FOUND", "no such endpoint")
 	})
 
-	srv := &http.Server{Addr: ":" + env("PORT", "8000"), Handler: r, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: ":" + env("PORT", "8000"), Handler: instrument(r), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -122,6 +133,8 @@ func proxy(target string) http.HandlerFunc {
 		panic(err)
 	}
 	rp := &httputil.ReverseProxy{
+		// Injects traceparent so the upstream service continues this trace.
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(u)
 			pr.Out.URL.Path = strings.TrimPrefix(pr.In.URL.Path, "/api")
@@ -134,7 +147,7 @@ func proxy(target string) http.HandlerFunc {
 			pr.Out.Header.Set("X-Request-Id", reqID(pr.In))
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			slog.Error("upstream unavailable", "requestId", reqID(r), "upstream", target, "error", err)
+			slog.ErrorContext(r.Context(), "upstream unavailable", "requestId", reqID(r), "upstream", target, "error", err)
 			writeError(w, r, 502, "UPSTREAM_UNAVAILABLE", "service temporarily unavailable")
 		},
 	}

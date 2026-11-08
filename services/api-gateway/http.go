@@ -47,7 +47,7 @@ func accessLog(next http.Handler) http.Handler {
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		start := time.Now()
 		next.ServeHTTP(ww, r)
-		slog.Info("request", "requestId", reqID(r), "method", r.Method, "path", r.URL.Path,
+		slog.InfoContext(r.Context(), "request", "requestId", reqID(r), "method", r.Method, "path", r.URL.Path,
 			"status", ww.Status(), "durationMs", time.Since(start).Milliseconds(), "customerId", customerID(r))
 	})
 }
@@ -63,5 +63,5 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg st
 }
 
 func logErr(r *http.Request, msg string, err error) {
-	slog.Error(msg, "requestId", reqID(r), "error", err)
+	slog.ErrorContext(r.Context(), msg, "requestId", reqID(r), "error", err)
 }

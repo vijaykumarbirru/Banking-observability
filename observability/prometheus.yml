@@ -1,0 +1,76 @@
+global:
+  scrape_interval: 15s
+ 
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+ 
+  - job_name: otel-collector
+    # Keep the job/instance labels the Collector sets per service instead of
+    # overwriting them all with "otel-collector".
+    honor_labels: true
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # ---- Infrastructure ----
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: mongodb
+    static_configs:
+      - targets: ["mongodb-exporter:9216"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # RabbitMQ's built-in Prometheus plugin: broker-wide totals...
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+
+  # ...and per-queue depth (needs the detailed endpoint).
+  - job_name: rabbitmq-queues
+    metrics_path: /metrics/detailed
+    params:
+      family: [queue_coarse_metrics, queue_consumer_count]
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+
+  # Health of every bank service, probed through the Blackbox exporter.
+  - job_name: bank-services
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://api-gateway:8000/health/ready
+          - http://auth-service:8081/health/ready
+          - http://customer-service:8082/health/ready
+          - http://account-service:8083/health/ready
+          - http://ledger-service:8084/health/ready
+          - http://transfer-service:8085/health/ready
+          - http://fraud-service:8086/health/ready
+          - http://notification-service:8087/health/ready
+          - http://audit-service:8088/health/ready
+          - http://statement-service:8089/health/ready
+          - http://payment-service:8090/health/ready
+          - http://card-service:8091/health/ready
+          - http://settlement-worker:8092/health/ready
+          - http://web-frontend:8080/
+    relabel_configs:
+      - source_labels: [__address__]        # the URL becomes ?target=...
+        target_label: __param_target
+      - source_labels: [__param_target]     # instance = the probed URL, not the exporter
+        target_label: instance
+      - source_labels: [__param_target]     # http://auth-service:8081/... -> service="auth-service"
+        regex: 'http://([^:]+):.*'
+        target_label: service
+      - target_label: __address__           # ...and the request goes to the Blackbox exporter
+        replacement: blackbox-exporter:9115

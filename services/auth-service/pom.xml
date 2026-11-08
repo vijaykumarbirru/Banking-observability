@@ -50,6 +50,12 @@
       <artifactId>nimbus-jose-jwt</artifactId>
       <version>9.47</version>
     </dependency>
+    <!-- OpenTelemetry API only: the Java agent supplies the SDK at runtime; without it calls are no-ops. -->
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-api</artifactId>
+      <version>1.44.1</version>
+    </dependency>
   </dependencies>
 
   <build>
