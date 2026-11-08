@@ -153,7 +153,7 @@ def main() -> None:
             customer_id = f"VB{100000 + n}"
             first, last = FIRST[n - 1], LAST[n - 1]
             city, area = CITIES[n % len(CITIES)]
-            call(client, "POST", f"{CUSTOMER}/internal/customers", {
+            created = call(client, "POST", f"{CUSTOMER}/internal/customers", {
                 "customerId": customer_id,
                 "fullName": f"{first} {last}",
                 "email": f"{first.lower()}.{last.lower()}@example.com",
@@ -161,7 +161,12 @@ def main() -> None:
                 "dob": (date(1975, 1, 1) + timedelta(days=rng.randint(0, 9000))).isoformat(),
                 "address": f"{rng.randint(1, 400)}, {area}",
                 "city": city,
-            })
+            })["created"]
+            if not created:
+                # Already seeded on an earlier run. The generated history depends on today's date,
+                # so re-seeding an existing customer would post different journals: skip entirely.
+                print(f"{customer_id} already seeded, skipping", flush=True)
+                continue
             call(client, "POST", f"{AUTH}/internal/credentials", {"customerId": customer_id, "password": PASSWORD})
 
             accounts = [("SAVINGS", f"1001{100000 + n:08d}")]
